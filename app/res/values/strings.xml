@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_service_description">让开机和短按遥控器 Home 键进入简洁桌面，长按 Home 键打开最近任务。</string>
+</resources>
