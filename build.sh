@@ -7,7 +7,7 @@ build_tools="$sdk_dir/build-tools/${BUILD_TOOLS_VERSION:-36.1.0}"
 android_jar="$sdk_dir/platforms/${ANDROID_PLATFORM:-android-36}/android.jar"
 build_dir="$project_dir/build"
 signing_dir="$project_dir/.signing"
-version="1.3.6"
+version="1.3.7"
 target_apk="$build_dir/TVHome-$version.apk"
 
 if [[ -z "${JAVA_HOME:-}" && -x "$HOME/.local/share/mise/installs/java/17/bin/java" ]]; then

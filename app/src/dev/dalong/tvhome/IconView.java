@@ -10,7 +10,7 @@ final class IconView extends View {
     enum Glyph {
         PERSON, INPUT, APPS, SETTINGS, WIFI, BLUETOOTH, ETHERNET, OFFLINE,
         HDMI, TV, AV, DTMB, USB, SMART_HOME, WEATHER,
-        RECENTS, MANAGE_APPS, DESKTOP_SETTINGS
+        RECENTS, MANAGE_APPS, DESKTOP_SETTINGS, SORT, UNINSTALL, ARROW
     }
 
     private final Glyph glyph;
@@ -186,6 +186,37 @@ final class IconView extends View {
                 canvas.drawLine(12.5f, 15, 18.5f, 15, paint);
                 canvas.drawLine(14.5f, 7.5f, 14.5f, 10.5f, paint);
                 canvas.drawLine(16.5f, 13.5f, 16.5f, 16.5f, paint);
+                break;
+            case SORT:
+                path.moveTo(3, 7);
+                path.lineTo(20, 7);
+                path.moveTo(16, 3);
+                path.lineTo(20, 7);
+                path.lineTo(16, 11);
+                path.moveTo(21, 17);
+                path.lineTo(4, 17);
+                path.moveTo(8, 13);
+                path.lineTo(4, 17);
+                path.lineTo(8, 21);
+                canvas.drawPath(path, paint);
+                break;
+            case UNINSTALL:
+                canvas.drawLine(4, 6, 20, 6, paint);
+                canvas.drawLine(9, 3, 15, 3, paint);
+                path.moveTo(6, 6);
+                path.lineTo(7, 20);
+                path.lineTo(17, 20);
+                path.lineTo(18, 6);
+                canvas.drawPath(path, paint);
+                canvas.drawLine(10, 10, 10.5f, 16, paint);
+                canvas.drawLine(14, 10, 13.5f, 16, paint);
+                break;
+            case ARROW:
+                canvas.drawLine(12, 6, 12, 18, paint);
+                path.moveTo(7, 11);
+                path.lineTo(12, 6);
+                path.lineTo(17, 11);
+                canvas.drawPath(path, paint);
                 break;
             case SMART_HOME:
                 path.moveTo(3, 11);

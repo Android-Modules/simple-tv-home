@@ -11,10 +11,12 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Color;
+import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageVolume;
@@ -46,6 +48,7 @@ public final class MainActivity extends Activity {
     private static final int APPS = 2;
     private static final String[] PAGE_NAMES = {"我的", "信号源", "应用"};
     private static final int APP_COLUMNS = 6;
+    private static final int REQUEST_UNINSTALL_APP = 1;
 
     private static final int BACKGROUND = 0xff191a1d;
     private static final int SIDEBAR = 0xff151619;
@@ -73,7 +76,7 @@ public final class MainActivity extends Activity {
     private TextView title;
     private TextView sortMessage;
     private HomeStatus status;
-    private Dialog quickMenu;
+    private Dialog menuDialog;
     private AlertDialog desktopSettings;
     private boolean systemPanelOpened;
     private int currentPage = -1;
@@ -119,7 +122,7 @@ public final class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         if (isHomeIntent(intent)) {
-            closeQuickMenu();
+            closeMenu();
             closeDesktopSettings();
             status.dismissCityDialog();
             leaveSort(false);
@@ -146,7 +149,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        closeQuickMenu();
+        closeMenu();
         closeDesktopSettings();
         status.close();
         super.onDestroy();
@@ -154,7 +157,7 @@ public final class MainActivity extends Activity {
 
     static boolean routeMenuKey(KeyEvent event) {
         MainActivity activity = foreground;
-        return activity != null && (activity.hasWindowFocus() || activity.isQuickMenuShowing())
+        return activity != null && (activity.hasWindowFocus() || activity.isMenuShowing())
                 && activity.handleMenuKey(event);
     }
 
@@ -208,7 +211,8 @@ public final class MainActivity extends Activity {
             return true;
         }
         if (sorting) {
-            int target = sortTarget(event.getKeyCode());
+            int index = movingApp >= 0 ? movingApp : focusedApp();
+            int target = sortTarget(index, event.getKeyCode());
             if (target != -2) {
                 if (event.getAction() == KeyEvent.ACTION_DOWN && target >= 0) {
                     if (movingApp >= 0) {
@@ -225,13 +229,13 @@ public final class MainActivity extends Activity {
 
     private boolean handleMenuKey(KeyEvent event) {
         if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
-            if (isQuickMenuShowing()) {
-                closeQuickMenu();
+            if (isMenuShowing()) {
+                closeMenu();
             } else if (currentPage == APPS) {
                 if (sorting) {
                     leaveSort(true);
                 } else if (!appOrder.isEmpty()) {
-                    startSort();
+                    showAppMenu();
                 }
             } else if (!showSystemPanel()) {
                 showQuickMenu();
@@ -251,27 +255,18 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private boolean isQuickMenuShowing() {
-        return quickMenu != null && quickMenu.isShowing();
+    private boolean isMenuShowing() {
+        return menuDialog != null && menuDialog.isShowing();
     }
 
-    private void closeQuickMenu() {
-        if (quickMenu != null) {
-            quickMenu.dismiss();
-            quickMenu = null;
+    private void closeMenu() {
+        if (menuDialog != null) {
+            menuDialog.dismiss();
         }
     }
 
     private void showQuickMenu() {
-        Dialog dialog = new Dialog(this);
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        LinearLayout panel = vertical();
-        panel.setPadding(dp(15), dp(15), dp(15), dp(15));
-        panel.setBackground(shape(0xff202226, 16, false));
-        TextView heading = label("快捷菜单", 17, MUTED, true);
-        heading.setPadding(dp(5), 0, 0, dp(10));
-        panel.addView(heading);
-
+        LinearLayout panel = menuPanel("快捷菜单");
         View inputs = addMenuItem(panel, "信号源", IconView.Glyph.INPUT, () -> {
             selectPage(INPUTS);
             pageCards.get(0).requestFocus();
@@ -282,27 +277,95 @@ public final class MainActivity extends Activity {
         control.setNextFocusUpId(inputs.getId());
         control.setNextFocusDownId(smartHome.getId());
         smartHome.setNextFocusUpId(control.getId());
+        showMenu(panel, inputs, null);
+    }
 
+    private void showAppMenu() {
+        int index = Math.max(0, focusedApp());
+        AppTile tile = appTiles.get(index);
+        tile.requestFocus();
+        InstalledApp app = appOrder.get(index);
+        LinearLayout panel = menuPanel(app.label);
+        View sort = addMenuItem(panel, "排序", IconView.Glyph.SORT, this::startSort);
+        View uninstall = addMenuItem(panel, "卸载", IconView.Glyph.UNINSTALL, () -> uninstallApp(app));
+        sort.setNextFocusDownId(uninstall.getId());
+        uninstall.setNextFocusUpId(sort.getId());
+        showMenu(panel, sort, tile.artwork);
+    }
+
+    private LinearLayout menuPanel(String title) {
+        LinearLayout panel = vertical();
+        panel.setPadding(dp(15), dp(15), dp(15), dp(15));
+        panel.setBackground(shape(0xff202226, 16, false));
+        TextView heading = label(title, 17, MUTED, true);
+        heading.setSingleLine(true);
+        heading.setEllipsize(TextUtils.TruncateAt.END);
+        heading.setPadding(dp(5), 0, 0, dp(10));
+        panel.addView(heading);
+        return panel;
+    }
+
+    private void showMenu(LinearLayout panel, View firstItem, View anchor) {
+        Dialog dialog = new Dialog(this);
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(panel);
         dialog.setOnKeyListener((window, code, event) -> code == KeyEvent.KEYCODE_MENU && handleMenuKey(event));
-        quickMenu = dialog;
-        dialog.show();
+        dialog.setOnDismissListener(window -> {
+            if (menuDialog == dialog) {
+                menuDialog = null;
+            }
+        });
+        menuDialog = dialog;
         Window window = dialog.getWindow();
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
-        window.setLayout(dp(230), -2);
-        window.setGravity(Gravity.TOP | Gravity.RIGHT);
         WindowManager.LayoutParams position = window.getAttributes();
+        position.width = dp(230);
+        position.height = WindowManager.LayoutParams.WRAP_CONTENT;
+        position.gravity = Gravity.TOP | Gravity.RIGHT;
         position.x = dp(29);
         position.y = dp(78);
         position.dimAmount = 0.35f;
+        if (anchor != null) {
+            positionAppMenu(panel, anchor, position);
+        }
         window.setAttributes(position);
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
-        inputs.requestFocus();
+        dialog.show();
+        firstItem.requestFocus();
+    }
+
+    private void positionAppMenu(LinearLayout panel, View anchor, WindowManager.LayoutParams position) {
+        Rect icon = new Rect();
+        if (!anchor.getGlobalVisibleRect(icon)) {
+            return;
+        }
+        View decor = getWindow().getDecorView();
+        int margin = dp(12);
+        int gap = dp(8);
+        position.width = Math.min(position.width, decor.getWidth() - 2 * margin);
+        panel.measure(View.MeasureSpec.makeMeasureSpec(position.width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+        int maxX = decor.getWidth() - margin - position.width;
+        int maxY = decor.getHeight() - margin - panel.getMeasuredHeight();
+        int x = icon.right + gap;
+        int y = icon.top;
+        if (x > maxX) {
+            int above = icon.top - gap - panel.getMeasuredHeight();
+            if (above >= margin) {
+                x = icon.right - position.width;
+                y = above;
+            } else {
+                x = icon.left - gap - position.width;
+            }
+        }
+        position.gravity = Gravity.TOP | Gravity.LEFT;
+        position.x = Math.max(margin, Math.min(x, maxX));
+        position.y = Math.max(margin, Math.min(y, maxY));
     }
 
     private View addMenuItem(LinearLayout panel, String name, IconView.Glyph glyph, Runnable action) {
         FrameLayout item = cardFrame(name, () -> {
-            closeQuickMenu();
+            closeMenu();
             action.run();
         });
         LinearLayout content = horizontal();
@@ -398,21 +461,29 @@ public final class MainActivity extends Activity {
         leaveSort(false);
         currentPage = page;
         refreshNavigation();
-        body.removeAllViews();
-        pageCards.clear();
-        appTiles.clear();
-        sortMessage = null;
-        scroll.scrollTo(0, 0);
+        clearPageContent();
         title.setText(PAGE_NAMES[page]);
         if (page == MINE) {
             buildMine();
         } else if (page == INPUTS) {
             buildInputs();
         } else {
-            buildApps();
+            buildApps(installedApps());
         }
-        navigation[page].setNextFocusRightId(
-                pageCards.isEmpty() ? navigation[page].getId() : pageCards.get(0).getId());
+        updatePageEntry();
+    }
+
+    private void clearPageContent() {
+        body.removeAllViews();
+        pageCards.clear();
+        appTiles.clear();
+        sortMessage = null;
+        scroll.scrollTo(0, 0);
+    }
+
+    private void updatePageEntry() {
+        NavItem entry = navigation[currentPage];
+        entry.setNextFocusRightId(pageCards.isEmpty() ? entry.getId() : pageCards.get(0).getId());
     }
 
     private void refreshNavigation() {
@@ -497,8 +568,8 @@ public final class MainActivity extends Activity {
         connectGrid(3);
     }
 
-    private void buildApps() {
-        appOrder = installedApps();
+    private void buildApps(List<InstalledApp> apps) {
+        appOrder = apps;
         if (appOrder.isEmpty()) {
             addSection("暂无可打开的应用");
             return;
@@ -557,8 +628,7 @@ public final class MainActivity extends Activity {
         updateSortMessage();
     }
 
-    private int sortTarget(int keyCode) {
-        int index = focusedApp();
+    private int sortTarget(int index, int keyCode) {
         if (index < 0) {
             return -2;
         }
@@ -627,7 +697,7 @@ public final class MainActivity extends Activity {
 
     private void updateSortMessage() {
         if (sortMessage != null) {
-            String message = "菜单键 排序";
+            String message = "菜单键打开应用菜单";
             if (sorting) {
                 message = movingApp >= 0 ? "方向键移动　确定键放下　返回键取消"
                         : "确定键选中应用　菜单键退出排序";
@@ -768,6 +838,53 @@ public final class MainActivity extends Activity {
                 .setComponent(app.component)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
         open(intent, "无法打开「" + app.label + "」");
+    }
+
+    @SuppressWarnings("deprecation")
+    private void uninstallApp(InstalledApp app) {
+        Intent intent = new Intent(Intent.ACTION_DELETE,
+                Uri.fromParts("package", app.component.getPackageName(), null))
+                .putExtra(Intent.EXTRA_RETURN_RESULT, true);
+        try {
+            startActivityForResult(intent, REQUEST_UNINSTALL_APP);
+        } catch (ActivityNotFoundException | SecurityException error) {
+            Toast.makeText(this, "无法打开系统卸载界面", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    @SuppressWarnings("deprecation")
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_UNINSTALL_APP || currentPage != APPS) {
+            return;
+        }
+        List<InstalledApp> apps = installedApps();
+        if (sameApps(apps)) {
+            return;
+        }
+        int index = focusedApp();
+        leaveSort(false);
+        clearPageContent();
+        buildApps(apps);
+        updatePageEntry();
+        if (index < 0 || appTiles.isEmpty()) {
+            navigation[APPS].requestFocus();
+        } else {
+            appTiles.get(Math.min(index, appTiles.size() - 1)).requestFocus();
+        }
+    }
+
+    private boolean sameApps(List<InstalledApp> apps) {
+        if (apps.size() != appOrder.size()) {
+            return false;
+        }
+        for (int index = 0; index < apps.size(); index++) {
+            if (!apps.get(index).component.equals(appOrder.get(index).component)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void openSettings(String action) {
@@ -914,13 +1031,20 @@ public final class MainActivity extends Activity {
     }
 
     private final class AppTile extends FrameLayout {
+        private final int index;
         private final FrameLayout artwork;
         private final ImageView icon;
+        private final FrameLayout moveArrows;
+        private final IconView up;
+        private final IconView right;
+        private final IconView down;
+        private final IconView left;
         private final TextView name;
         private boolean picked;
 
         private AppTile(int index) {
             super(MainActivity.this);
+            this.index = index;
             setId(View.generateViewId());
             setFocusable(true);
             setClickable(true);
@@ -951,6 +1075,14 @@ public final class MainActivity extends Activity {
             icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
             artwork.addView(icon, new FrameLayout.LayoutParams(-1, -1));
 
+            moveArrows = new FrameLayout(MainActivity.this);
+            moveArrows.setVisibility(View.GONE);
+            artwork.addView(moveArrows, new FrameLayout.LayoutParams(-1, -1));
+            up = addArrow(Gravity.TOP | Gravity.CENTER_HORIZONTAL, 0);
+            right = addArrow(Gravity.RIGHT | Gravity.CENTER_VERTICAL, 90);
+            down = addArrow(Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 180);
+            left = addArrow(Gravity.LEFT | Gravity.CENTER_VERTICAL, 270);
+
             name = label("", 14, MUTED, false);
             name.setGravity(Gravity.CENTER);
             name.setMaxLines(1);
@@ -959,6 +1091,16 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(-1, -2);
             textParams.topMargin = dp(5);
             content.addView(name, textParams);
+        }
+
+        private IconView addArrow(int gravity, int rotation) {
+            IconView arrow = new IconView(MainActivity.this, IconView.Glyph.ARROW, MOVE_ACCENT);
+            arrow.setBackground(shape(BACKGROUND, 10, false));
+            arrow.setRotation(rotation);
+            FrameLayout.LayoutParams position = new FrameLayout.LayoutParams(dp(20), dp(20), gravity);
+            position.setMargins(dp(4), dp(4), dp(4), dp(4));
+            moveArrows.addView(arrow, position);
+            return arrow;
         }
 
         private void bind(InstalledApp app, boolean picked) {
@@ -972,20 +1114,28 @@ public final class MainActivity extends Activity {
 
         private void paint() {
             boolean focused = hasFocus();
+            int tint = picked ? MOVE_ACCENT : focused ? WHITE : MUTED;
             if (picked || focused) {
-                int tint = picked ? MOVE_ACCENT : WHITE;
                 GradientDrawable ring = shape(Color.TRANSPARENT, 18, false);
                 ring.setStroke(dp(4), tint);
                 artwork.setForeground(ring);
-                name.setBackground(shape(tint, 6, false));
             } else {
                 artwork.setForeground(null);
-                name.setBackground(null);
+            }
+            moveArrows.setVisibility(picked ? View.VISIBLE : View.GONE);
+            if (picked) {
+                paintArrow(up, KeyEvent.KEYCODE_DPAD_UP);
+                paintArrow(right, KeyEvent.KEYCODE_DPAD_RIGHT);
+                paintArrow(down, KeyEvent.KEYCODE_DPAD_DOWN);
+                paintArrow(left, KeyEvent.KEYCODE_DPAD_LEFT);
             }
             artwork.setScaleX(focused ? 1.07f : 1f);
             artwork.setScaleY(focused ? 1.07f : 1f);
-            name.setTextColor(picked || focused ? ON_LIGHT : MUTED);
-            name.setTypeface(Typeface.create("sans-serif", picked || focused ? Typeface.BOLD : Typeface.NORMAL));
+            name.setTextColor(tint);
+        }
+
+        private void paintArrow(IconView arrow, int direction) {
+            arrow.setTint(sortTarget(index, direction) >= 0 ? MOVE_ACCENT : 0xff737781);
         }
     }
 
