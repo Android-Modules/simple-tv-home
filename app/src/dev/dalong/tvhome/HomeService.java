@@ -20,6 +20,8 @@ import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityEvent;
 import android.widget.Toast;
 
+import com.liuguang.cast.tv.RemoteMenuKey;
+
 public final class HomeService extends AccessibilityService {
     static final String SHOW_HOME = "dev.dalong.tvhome.SHOW_HOME";
     static final String STOCK_PACKAGE = "com.mitv.tvhome";
@@ -83,7 +85,7 @@ public final class HomeService extends AccessibilityService {
 
     @Override
     protected boolean onKeyEvent(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
+        if (RemoteMenuKey.matches(event.getKeyCode())) {
             return MainActivity.routeMenuKey(event);
         }
         if (event.getKeyCode() != KeyEvent.KEYCODE_HOME) {

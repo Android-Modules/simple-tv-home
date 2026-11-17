@@ -34,8 +34,14 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.liuguang.cast.airplay.AirPlayReceiverService;
+import com.liuguang.cast.tv.RemoteMenuKey;
+import com.liuguang.cast.tv.TvReceiverPanel;
+import com.liuguang.cast.tv.TvReceiverService;
+
 import java.text.Collator;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -46,7 +52,8 @@ public final class MainActivity extends Activity {
     private static final int MINE = 0;
     private static final int INPUTS = 1;
     private static final int APPS = 2;
-    private static final String[] PAGE_NAMES = {"我的", "信号源", "应用"};
+    private static final int CAST = 3;
+    private static final String[] PAGE_NAMES = {"我的", "信号源", "应用", "投屏"};
     private static final int APP_COLUMNS = 6;
     private static final int REQUEST_UNINSTALL_APP = 1;
 
@@ -57,6 +64,7 @@ public final class MainActivity extends Activity {
     private static final int MUTED = 0xffb0b2ba;
     private static final int ON_LIGHT = 0xff18191c;
     private static final int NAV_SELECTED = 0xff2e3036;
+    private static final int APP_FOCUS = 0xff78a9ff;
     private static final int MOVE_ACCENT = 0xff8ac6ff;
 
     private static final String STOCK_PLAYER = "com.xiaomi.mitv.tvplayer";
@@ -71,8 +79,10 @@ public final class MainActivity extends Activity {
     private final List<AppTile> appTiles = new ArrayList<>();
     private List<InstalledApp> appOrder = new ArrayList<>();
     private List<InstalledApp> orderBeforeMove;
+    private FrameLayout content;
     private LinearLayout body;
     private ScrollView scroll;
+    private TvReceiverPanel castPanel;
     private TextView title;
     private TextView sortMessage;
     private HomeStatus status;
@@ -135,6 +145,8 @@ public final class MainActivity extends Activity {
         super.onResume();
         foreground = this;
         status.start();
+        TvReceiverService.launch(this);
+        AirPlayReceiverService.launch(this);
     }
 
     @Override
@@ -144,6 +156,7 @@ public final class MainActivity extends Activity {
         }
         systemPanelOpened = false;
         status.stop();
+        TvReceiverService.leave(this);
         super.onPause();
     }
 
@@ -152,6 +165,7 @@ public final class MainActivity extends Activity {
         closeMenu();
         closeDesktopSettings();
         status.close();
+        TvReceiverService.detach(this);
         super.onDestroy();
     }
 
@@ -207,7 +221,10 @@ public final class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (event.getKeyCode() == KeyEvent.KEYCODE_MENU && handleMenuKey(event)) {
+        if (RemoteMenuKey.matches(event.getKeyCode())) {
+            return handleMenuKey(event);
+        }
+        if (handleReceiverKey(event)) {
             return true;
         }
         if (sorting) {
@@ -227,8 +244,15 @@ public final class MainActivity extends Activity {
         return super.dispatchKeyEvent(event);
     }
 
+    private boolean handleReceiverKey(KeyEvent event) {
+        return currentPage == CAST && castPanel != null && castPanel.handleKeyEvent(event);
+    }
+
     private boolean handleMenuKey(KeyEvent event) {
-        if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
+        if (handleReceiverKey(event)) {
+            return true;
+        }
+        if (RemoteMenuKey.isPress(event)) {
             if (isMenuShowing()) {
                 closeMenu();
             } else if (currentPage == APPS) {
@@ -309,7 +333,7 @@ public final class MainActivity extends Activity {
         Dialog dialog = new Dialog(this);
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
         dialog.setContentView(panel);
-        dialog.setOnKeyListener((window, code, event) -> code == KeyEvent.KEYCODE_MENU && handleMenuKey(event));
+        dialog.setOnKeyListener((window, code, event) -> RemoteMenuKey.matches(code) && handleMenuKey(event));
         dialog.setOnDismissListener(window -> {
             if (menuDialog == dialog) {
                 menuDialog = null;
@@ -391,7 +415,8 @@ public final class MainActivity extends Activity {
         sidebar.setBackgroundColor(SIDEBAR);
         root.addView(sidebar, new LinearLayout.LayoutParams(dp(113), -1));
 
-        IconView.Glyph[] glyphs = {IconView.Glyph.PERSON, IconView.Glyph.INPUT, IconView.Glyph.APPS};
+        IconView.Glyph[] glyphs = {IconView.Glyph.PERSON, IconView.Glyph.INPUT, IconView.Glyph.APPS,
+                IconView.Glyph.TV};
         for (int index = 0; index < PAGE_NAMES.length; index++) {
             final int page = index;
             NavItem item = new NavItem(PAGE_NAMES[index], glyphs[index]);
@@ -403,10 +428,12 @@ public final class MainActivity extends Activity {
             });
             item.setOnClickListener(view -> {
                 selectPage(page);
-                if (!pageCards.isEmpty()) {
-                    pageCards.get(0).requestFocus();
-                }
+                focusPageEntry();
             });
+            if (page == CAST) {
+                item.setOnKeyListener((view, key, event) -> key == KeyEvent.KEYCODE_DPAD_RIGHT
+                        && event.getAction() == KeyEvent.ACTION_DOWN && focusPageEntry());
+            }
             LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, dp(36));
             sidebar.addView(item, params);
             navigation[index] = item;
@@ -440,18 +467,20 @@ public final class MainActivity extends Activity {
         scroll.setClipToPadding(false);
         body = vertical();
         scroll.addView(body, new ScrollView.LayoutParams(-1, -2));
-        panel.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1f));
+        content = new FrameLayout(this);
+        content.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+        panel.addView(content, new LinearLayout.LayoutParams(-1, 0, 1f));
         return root;
     }
 
     private int defaultHomePage() {
         int page = getPreferences(MODE_PRIVATE).getInt(DEFAULT_HOME_PAGE, MINE);
-        return page >= 0 && page < PAGE_NAMES.length ? page : MINE;
+        return page >= 0 && page < CAST ? page : MINE;
     }
 
     private void focusPage(int page) {
-        selectPage(page);
         navigation[page].requestFocus();
+        selectPage(page);
     }
 
     private void selectPage(int page) {
@@ -462,8 +491,19 @@ public final class MainActivity extends Activity {
         currentPage = page;
         refreshNavigation();
         clearPageContent();
-        title.setText(PAGE_NAMES[page]);
-        if (page == MINE) {
+        boolean showCast = page == CAST;
+        scroll.setVisibility(showCast ? View.GONE : View.VISIBLE);
+        if (castPanel != null) {
+            castPanel.setVisibility(showCast ? View.VISIBLE : View.GONE);
+        }
+        title.setText(showCast ? getString(R.string.simple_cast_name) : PAGE_NAMES[page]);
+        if (showCast) {
+            if (castPanel == null) {
+                castPanel = new TvReceiverPanel(this);
+                castPanel.setSidebarFocusId(navigation[CAST].getId());
+                content.addView(castPanel, new FrameLayout.LayoutParams(-1, -1));
+            }
+        } else if (page == MINE) {
             buildMine();
         } else if (page == INPUTS) {
             buildInputs();
@@ -482,8 +522,21 @@ public final class MainActivity extends Activity {
     }
 
     private void updatePageEntry() {
-        NavItem entry = navigation[currentPage];
-        entry.setNextFocusRightId(pageCards.isEmpty() ? entry.getId() : pageCards.get(0).getId());
+        NavItem nav = navigation[currentPage];
+        View entry = pageEntry();
+        nav.setNextFocusRightId(entry == null ? nav.getId() : entry.getId());
+    }
+
+    private View pageEntry() {
+        if (currentPage == CAST) {
+            return castPanel.entryFocus();
+        }
+        return pageCards.isEmpty() ? null : pageCards.get(0);
+    }
+
+    private boolean focusPageEntry() {
+        View entry = pageEntry();
+        return entry != null && entry.requestFocus();
     }
 
     private void refreshNavigation() {
@@ -496,9 +549,11 @@ public final class MainActivity extends Activity {
     }
 
     private void buildMine() {
-        LinearLayout accountRow = addRow();
-        addCard(accountRow, tile("个人中心", "小米账号与安全", IconView.Glyph.PERSON, 0xff405b91,
+        LinearLayout topRow = addRow();
+        addCard(topRow, tile("个人中心", "小米账号与安全", IconView.Glyph.PERSON, 0xff405b91,
                 this::openAccount), true);
+        addCard(topRow, tile(getString(R.string.simple_cast_name), "手机投屏与接收文件",
+                IconView.Glyph.INPUT, 0xff2f657c, () -> focusPage(CAST)), true);
         addSection("系统管理");
         LinearLayout row = addRow();
         addCard(row, tile("设置", "显示、声音与系统", IconView.Glyph.SETTINGS, 0xff405b91,
@@ -518,10 +573,10 @@ public final class MainActivity extends Activity {
         addCard(shortcuts, tile("桌面设置", "选择进入桌面时打开的页面", IconView.Glyph.DESKTOP_SETTINGS,
                 0xff4b598f, this::showDesktopSettings), true);
 
-        connectMineRow(accountRow, null, row);
-        connectMineRow(row, accountRow, shortcuts);
+        connectMineRow(topRow, null, row);
+        connectMineRow(row, topRow, shortcuts);
         connectMineRow(shortcuts, row, null);
-        accountRow.getChildAt(0).setNextFocusDownId(row.getChildAt(0).getId());
+        topRow.getChildAt(0).setNextFocusDownId(row.getChildAt(0).getId());
     }
 
     private void connectMineRow(LinearLayout row, LinearLayout above, LinearLayout below) {
@@ -856,6 +911,7 @@ public final class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        TvReceiverService.activityResult(this, requestCode, resultCode);
         if (requestCode != REQUEST_UNINSTALL_APP || currentPage != APPS) {
             return;
         }
@@ -908,7 +964,7 @@ public final class MainActivity extends Activity {
     private void showDesktopSettings() {
         desktopSettings = new AlertDialog.Builder(this)
                 .setTitle("默认首页")
-                .setSingleChoiceItems(PAGE_NAMES, defaultHomePage(), (dialog, page) -> {
+                .setSingleChoiceItems(Arrays.copyOf(PAGE_NAMES, CAST), defaultHomePage(), (dialog, page) -> {
                     getPreferences(MODE_PRIVATE).edit().putInt(DEFAULT_HOME_PAGE, page).apply();
                     dialog.dismiss();
                     focusPage(page);
@@ -1114,7 +1170,7 @@ public final class MainActivity extends Activity {
 
         private void paint() {
             boolean focused = hasFocus();
-            int tint = picked ? MOVE_ACCENT : focused ? WHITE : MUTED;
+            int tint = picked ? MOVE_ACCENT : focused ? APP_FOCUS : MUTED;
             if (picked || focused) {
                 GradientDrawable ring = shape(Color.TRANSPARENT, 18, false);
                 ring.setStroke(dp(4), tint);
@@ -1165,8 +1221,9 @@ public final class MainActivity extends Activity {
         }
 
         private void paintState(boolean selected) {
-            int tint = hasFocus() ? ON_LIGHT : selected ? WHITE : MUTED;
-            setBackground(shape(hasFocus() ? WHITE : selected ? NAV_SELECTED : Color.TRANSPARENT,
+            int highlight = this == navigation[APPS] ? APP_FOCUS : WHITE;
+            int tint = hasFocus() ? ON_LIGHT : selected ? highlight : MUTED;
+            setBackground(shape(hasFocus() ? highlight : selected ? NAV_SELECTED : Color.TRANSPARENT,
                     9, false));
             icon.setTint(tint);
             text.setTextColor(tint);

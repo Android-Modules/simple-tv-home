@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.dalong.tvhome"
-    android:versionCode="11"
-    android:versionName="1.3.7">
+    android:versionCode="16"
+    android:versionName="1.3.12">
 
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="34" />
     <uses-feature android:name="android.software.leanback" android:required="true" />
@@ -10,6 +10,14 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <queries>
         <intent>
@@ -31,6 +39,7 @@
 
     <application
         android:allowBackup="false"
+        android:extractNativeLibs="true"
         android:icon="@drawable/launcher_icon"
         android:label="简洁桌面"
         android:theme="@style/TvTheme">
@@ -59,6 +68,53 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+        <activity
+            android:name="com.liuguang.cast.tv.TvActivity"
+            android:configChanges="keyboard|keyboardHidden|navigation"
+            android:enableOnBackInvokedCallback="true"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:label="@string/simple_cast_name"
+            android:screenOrientation="landscape"
+            android:taskAffinity="dev.dalong.tvhome.cast" />
+        <service
+            android:name="com.liuguang.cast.tv.TvReceiverService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice" />
+        <activity
+            android:name="com.liuguang.cast.airplay.AirPlayPlaybackActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:label="@string/simple_cast_name"
+            android:launchMode="singleTop"
+            android:screenOrientation="landscape"
+            android:taskAffinity="dev.dalong.tvhome.airplay"
+            android:theme="@style/TvTheme" />
+        <service
+            android:name="com.liuguang.cast.airplay.AirPlayReceiverService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice">
+            <meta-data
+                android:name="com.liuguang.cast.airplay.NAME"
+                android:value="@string/simple_cast_name" />
+            <meta-data
+                android:name="com.liuguang.cast.airplay.PORT"
+                android:value="47070" />
+        </service>
+        <receiver
+            android:name="com.liuguang.cast.airplay.AirPlayAutoStartReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name="com.liuguang.cast.tv.ApkInstallResult" android:exported="false" />
+        <provider
+            android:name="com.liuguang.cast.tv.InboxProvider"
+            android:authorities="dev.dalong.tvhome.inbox"
+            android:exported="false"
+            android:grantUriPermissions="true" />
         <service
             android:name=".HomeService"
             android:exported="true"
